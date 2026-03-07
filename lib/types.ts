@@ -1,0 +1,53 @@
+﻿export type AvailabilityStatus = "livre" | "em_atendimento" | "indisponivel";
+
+export type AdCategory = "premium" | "normal";
+
+export interface ProfessionalAd {
+  id: string;
+  slug: string;
+  displayName: string;
+  artisticName: string;
+  city: string;
+  state: string;
+  neighborhood: string;
+  category: string;
+  shortDescription: string;
+  description: string;
+  startingPrice: number;
+  heightCm: number;
+  ethnicity: string;
+  hairColor: string;
+  services: string[];
+  pricingTable: Array<{ label: string; price: number }>;
+  status: AvailabilityStatus;
+  adTier: AdCategory;
+  images: string[];
+  rating: number;
+  reviewsCount: number;
+}
+
+export interface Review {
+  id: string;
+  adId: string;
+  author: string;
+  score: number;
+  comment: string;
+  createdAt: string;
+}
+
+export interface Conversation {
+  id: string;
+  contactName: string;
+  contactStatus: string;
+  lastMessage: string;
+  lastMessageAt: string;
+  unread: number;
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  from: "me" | "other";
+  content: string;
+  sentAt: string;
+}
