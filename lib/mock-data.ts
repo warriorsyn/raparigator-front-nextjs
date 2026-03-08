@@ -1,4 +1,4 @@
-﻿import type { Conversation, Message, ProfessionalAd, Review } from "./types";
+﻿import type { Conversation, MediaHighlight, Message, ProfessionalAd, Review } from "./types";
 
 export const states = ["SP", "RJ", "MG", "PR", "SC", "RS"];
 export const cities = ["Sao Paulo", "Campinas", "Santos", "Rio de Janeiro", "Belo Horizonte", "Curitiba"];
@@ -35,6 +35,7 @@ export const ads: ProfessionalAd[] = [
     ],
     rating: 4.9,
     reviewsCount: 128,
+    profileViews: 21450,
   },
   {
     id: "2",
@@ -65,6 +66,7 @@ export const ads: ProfessionalAd[] = [
     ],
     rating: 4.8,
     reviewsCount: 92,
+    profileViews: 18670,
   },
   {
     id: "3",
@@ -95,6 +97,38 @@ export const ads: ProfessionalAd[] = [
     ],
     rating: 4.7,
     reviewsCount: 57,
+    profileViews: 17420,
+  },
+  {
+    id: "4",
+    slug: "maya-aurora-curitiba",
+    displayName: "Maya",
+    artisticName: "Maya Aurora",
+    city: "Curitiba",
+    state: "PR",
+    neighborhood: "Batel",
+    category: "Trans",
+    shortDescription: "Atendimento premium com discricao e suporte completo na plataforma.",
+    description: "Perfil com verificacao ativa e atendimento de alto padrao em ambiente seguro.",
+    startingPrice: 520,
+    heightCm: 175,
+    ethnicity: "Branca",
+    hairColor: "Loiro",
+    services: ["Companhia", "Eventos", "Atendimento em hotel"],
+    pricingTable: [
+      { label: "1 hora", price: 520 },
+      { label: "2 horas", price: 940 },
+      { label: "Pernoite", price: 2100 },
+    ],
+    status: "livre",
+    adTier: "premium",
+    images: [
+      "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=900&q=80",
+      "https://images.unsplash.com/photo-1529626455594-4ff0802cfb7e?auto=format&fit=crop&w=900&q=80",
+    ],
+    rating: 4.95,
+    reviewsCount: 147,
+    profileViews: 23990,
   },
 ];
 
@@ -102,6 +136,16 @@ export const reviews: Review[] = [
   { id: "r1", adId: "1", author: "Cliente verificado", score: 5, comment: "Pontual, educada e super discreta.", createdAt: "2026-02-27" },
   { id: "r2", adId: "1", author: "Cliente premium", score: 5, comment: "Experiencia impecavel do inicio ao fim.", createdAt: "2026-02-21" },
   { id: "r3", adId: "2", author: "Cliente verificado", score: 4, comment: "Excelente conversa e atendimento cordial.", createdAt: "2026-02-25" },
+  { id: "r4", adId: "4", author: "Cliente premium", score: 5, comment: "Super profissional e comunicativa.", createdAt: "2026-03-01" },
+];
+
+export const mediaHighlights: MediaHighlight[] = [
+  { id: "ph1", kind: "foto", category: "Feminino", professionalName: "Luna Velvet", coverUrl: "https://images.unsplash.com/photo-1515886657613-9f3515b0c78f?auto=format&fit=crop&w=900&q=80", likes: 1820, views: 40210 },
+  { id: "ph2", kind: "foto", category: "Masculino", professionalName: "Alex Rivera", coverUrl: "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?auto=format&fit=crop&w=900&q=80", likes: 1210, views: 33100 },
+  { id: "ph3", kind: "foto", category: "Trans", professionalName: "Maya Aurora", coverUrl: "https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=900&q=80", likes: 1960, views: 44150 },
+  { id: "vd1", kind: "video", category: "Feminino", professionalName: "Valentina Noir", coverUrl: "https://images.unsplash.com/photo-1525134479668-1bee5c7c6845?auto=format&fit=crop&w=900&q=80", likes: 1420, views: 51240 },
+  { id: "vd2", kind: "video", category: "Masculino", professionalName: "Alex Rivera", coverUrl: "https://images.unsplash.com/photo-1492562080023-ab3db95bfbce?auto=format&fit=crop&w=900&q=80", likes: 980, views: 28600 },
+  { id: "vd3", kind: "video", category: "Trans", professionalName: "Maya Aurora", coverUrl: "https://images.unsplash.com/photo-1487412720507-e7ab37603c6f?auto=format&fit=crop&w=900&q=80", likes: 1670, views: 45870 },
 ];
 
 export const conversations: Conversation[] = [
@@ -132,3 +176,11 @@ export const dashboardSummary = {
   profileViews: 1290,
   conversionRate: 18.2,
 };
+
+export const popularSections = [
+  { label: "Independencia Financeira", href: "/popular/independencia-financeira", description: "Simule renda e tempo para chegar no primeiro milhao." },
+  { label: "Mais avaliadas", href: "/popular/mais-avaliadas", description: "Veja as profissionais com maior media por categoria." },
+  { label: "Mais vistas", href: "/popular/mais-vistas", description: "Confira os perfis com mais visualizacoes do momento." },
+  { label: "Fotos bombando", href: "/popular/fotos-bombando", description: "Ranking de fotos com mais curtidas e views." },
+  { label: "Videos bombando", href: "/popular/videos-bombando", description: "Ranking de videos mais populares da plataforma." },
+];

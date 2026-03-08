@@ -24,6 +24,7 @@ export interface ProfessionalAd {
   images: string[];
   rating: number;
   reviewsCount: number;
+  profileViews: number;
 }
 
 export interface Review {
@@ -50,4 +51,14 @@ export interface Message {
   from: "me" | "other";
   content: string;
   sentAt: string;
+}
+
+export interface MediaHighlight {
+  id: string;
+  category: string;
+  professionalName: string;
+  coverUrl: string;
+  likes: number;
+  views: number;
+  kind: "foto" | "video";
 }

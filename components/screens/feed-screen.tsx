@@ -11,7 +11,6 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { ads, categories, cities } from "@/lib/mock-data";
 import { currency, cn } from "@/lib/utils";
 
@@ -49,9 +48,7 @@ export function FeedScreen() {
             </div>
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
               {quickFilters.map((filter) => (
-                <button key={filter} className="whitespace-nowrap rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:border-wine-300 hover:bg-wine-50">
-                  {filter}
-                </button>
+                <button key={filter} className="whitespace-nowrap rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-700 transition hover:border-wine-300 hover:bg-wine-50">{filter}</button>
               ))}
             </div>
           </div>
@@ -78,14 +75,20 @@ export function FeedScreen() {
             ) : (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {visibleAds.map((ad) => (
-                  <article key={ad.id} className="overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                  <article key={ad.id} className="relative overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+                    <div className={cn("absolute inset-y-0 left-0 w-1.5", ad.status === "livre" ? "bg-emerald-500" : ad.status === "em_atendimento" ? "bg-amber-500" : "bg-zinc-400")} />
+                    <div className="absolute right-3 top-3 z-10 rounded-full bg-white/90 px-2 py-1 text-xs font-semibold text-zinc-800 shadow-sm">★ {ad.rating.toFixed(1)}</div>
+
                     <div className="relative h-52 bg-zinc-100">
                       <Image src={ad.images[0]} alt={`${ad.artisticName} em ${ad.city}`} fill className="object-cover" sizes="(max-width: 768px) 100vw, 33vw" />
-                      <div className="absolute left-3 top-3"><StatusBadge status={ad.status} /></div>
                     </div>
-                    <div className="space-y-3 p-4">
+
+                    <div className="space-y-3 p-4 pl-5">
                       <div className="flex items-start justify-between gap-2">
                         <div>
+                          <p className={cn("mb-1 inline-flex rounded-full px-2.5 py-1 text-xs font-medium", ad.status === "livre" ? "bg-emerald-50 text-emerald-700" : ad.status === "em_atendimento" ? "bg-amber-50 text-amber-700" : "bg-zinc-100 text-zinc-600")}>
+                            {ad.status === "livre" ? "Livre" : ad.status === "em_atendimento" ? "Em atendimento" : "Indisponivel"}
+                          </p>
                           <h3 className="text-base font-semibold text-zinc-900">{ad.artisticName}</h3>
                           <p className="text-xs text-zinc-500">{ad.neighborhood}, {ad.city}</p>
                         </div>
@@ -104,9 +107,7 @@ export function FeedScreen() {
 
             {visibleCount < filteredAds.length ? (
               <div className="flex justify-center pt-2">
-                <Button onClick={() => { setLoadingMore(true); setTimeout(() => { setVisibleCount((value) => value + 3); setLoadingMore(false); }, 900); }}>
-                  Carregar mais anuncios
-                </Button>
+                <Button onClick={() => { setLoadingMore(true); setTimeout(() => { setVisibleCount((value) => value + 3); setLoadingMore(false); }, 900); }}>Carregar mais anuncios</Button>
               </div>
             ) : null}
           </div>
