@@ -1,13 +1,17 @@
-﻿"use client"; // Importante para gerenciar estado no cliente
+﻿"use client";
 
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { BackButton } from "@/components/ui/back-button";
 import { Button } from "@/components/ui/button";
 import { InfoBanner } from "@/components/ui/info-banner";
 import { Input } from "@/components/ui/input";
 import { Toast } from "@/components/ui/toast";
+import { registerClient } from "@/lib/api/auth";
+import { ApiError } from "@/lib/api/client";
+import { persistAuthSession } from "@/lib/auth/session";
 
 // Função auxiliar para aplicar a máscara de CPF (Formata: 000.000.000-00)
 // E remove qualquer caractere que não seja número (Previne: letras, símbolos)
@@ -21,6 +25,7 @@ const maskCPF = (value: string) => {
 };
 
 export function ClientSignupScreen() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [cpfValue, setCpfValue] = useState("");
   const [fullName, setFullName] = useState("");
@@ -36,6 +41,7 @@ export function ClientSignupScreen() {
   const [confirmEmailError, setConfirmEmailError] = useState<string | undefined>();
   const [passwordError, setPasswordError] = useState<string | undefined>();
   const [confirmPasswordError, setConfirmPasswordError] = useState<string | undefined>();
+  const [loading, setLoading] = useState(false);
 
   const [toast, setToast] = useState<{ title: string; message: string; type: "success" | "error" | "info" } | null>(null);
 
@@ -74,6 +80,25 @@ export function ClientSignupScreen() {
   };
 
   const nextStep = () => {
+    const cpfDigits = cpfValue.replace(/\D/g, "");
+    if (cpfDigits.length !== 11 || fullName.trim().length < 3) {
+      showToast({
+        title: "Dados iniciais incompletos",
+        message: "Preencha CPF valido e nome civil completo.",
+        type: "error",
+      });
+      return;
+    }
+
+    if (nicknameEnabled && nickname.trim().length < 2) {
+      showToast({
+        title: "Apelido invalido",
+        message: "Informe pelo menos 2 caracteres para o apelido.",
+        type: "error",
+      });
+      return;
+    }
+
     setStep(2);
   };
 
@@ -130,16 +155,39 @@ export function ClientSignupScreen() {
     return true;
   };
 
-  const handleFinishSignup = () => {
+  const handleFinishSignup = async () => {
     if (!validateStepTwo()) {
       return;
     }
 
-    showToast({
-      title: "Dados validados",
-      message: "Cadastro pronto para criacao da conta.",
-      type: "success",
-    });
+    setLoading(true);
+
+    try {
+      const auth = await registerClient({
+        email: email.trim().toLowerCase(),
+        password,
+        useRealNameInChat: !nicknameEnabled,
+        chatNickname: nicknameEnabled ? nickname.trim() : null,
+      });
+
+      persistAuthSession(auth);
+      showToast({
+        title: "Conta criada",
+        message: "Cadastro concluido com sucesso.",
+        type: "success",
+      });
+
+      router.push("/feed");
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Nao foi possivel concluir o cadastro agora.";
+      showToast({
+        title: "Falha no cadastro",
+        message,
+        type: "error",
+      });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -359,6 +407,7 @@ export function ClientSignupScreen() {
                     <Button
                       type="button"
                       variant="secondary"
+                      disabled={loading}
                       onClick={prevStep}
                       className="flex w-1/3 items-center justify-center border-zinc-200 text-zinc-700 hover:bg-zinc-100"
                     >
@@ -370,16 +419,18 @@ export function ClientSignupScreen() {
                     </Button>
                     <Button
                       type="button"
+                      disabled={loading}
                       onClick={handleFinishSignup}
                       className="mt-0 w-2/3 bg-wine-700 py-6 text-base text-white shadow-md shadow-wine-700/20 hover:bg-wine-800"
                     >
-                      Validar e Criar Conta
+                      {loading ? "Criando conta..." : "Validar e Criar Conta"}
                     </Button>
                   </>
                 ) : (
                   <Button
                     type="button"
                     fullWidth
+                    disabled={loading}
                     onClick={nextStep}
                     className="mt-0 flex items-center justify-center bg-wine-700 py-6 text-base text-white shadow-md shadow-wine-700/20 hover:bg-wine-800"
                   >
@@ -418,3 +469,5 @@ export function ClientSignupScreen() {
     </div>
   );
 }
+
+

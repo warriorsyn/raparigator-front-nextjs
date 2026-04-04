@@ -2,14 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { RiskWarningModal } from "@/components/ui/risk-warning-modal";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { getListingDetails, extractListingIdFromSlug } from "@/lib/api/listings";
 import { ads, reviews } from "@/lib/mock-data";
+import type { ProfessionalAd } from "@/lib/types";
 import { currency } from "@/lib/utils";
 
 interface AdDetailsScreenProps {
@@ -18,8 +20,54 @@ interface AdDetailsScreenProps {
 
 export function AdDetailsScreen({ slug }: AdDetailsScreenProps) {
   const [riskTarget, setRiskTarget] = useState<"WhatsApp" | "Telegram" | null>(null);
-  const ad = useMemo(() => ads.find((item) => item.slug === slug), [slug]);
+  const [ad, setAd] = useState<ProfessionalAd | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const listingId = useMemo(() => extractListingIdFromSlug(slug), [slug]);
+
+  useEffect(() => {
+    let active = true;
+    const fallbackAd = ads.find((item) => item.slug === slug) ?? null;
+
+    const load = async () => {
+      if (!listingId) {
+        setAd(fallbackAd);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setLoadError(null);
+
+      try {
+        const response = await getListingDetails(listingId);
+        if (!active) return;
+        setAd(response);
+      } catch {
+        if (!active) return;
+        setAd(fallbackAd);
+        setLoadError("Nao foi possivel carregar os detalhes da API. Exibindo dados locais quando disponiveis.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+
+    load();
+
+    return () => {
+      active = false;
+    };
+  }, [listingId, slug]);
+
   const adReviews = reviews.filter((review) => review.adId === ad?.id);
+
+  if (loading) {
+    return (
+      <AppShell>
+        <Card>Carregando perfil...</Card>
+      </AppShell>
+    );
+  }
 
   if (!ad) {
     return (
@@ -32,6 +80,7 @@ export function AdDetailsScreen({ slug }: AdDetailsScreenProps) {
   return (
     <AppShell location={`${ad.city}, ${ad.state}`}>
       <div className="space-y-6">
+        {loadError ? <Card className="border-amber-200 bg-amber-50 text-amber-900">{loadError}</Card> : null}
         <section className="grid gap-4 md:grid-cols-3">
           <div className="relative h-72 md:col-span-2 sm:h-96">
             <Image src={ad.images[0]} alt={ad.artisticName} fill className="rounded-2xl object-cover" sizes="(max-width: 768px) 100vw, 66vw" />

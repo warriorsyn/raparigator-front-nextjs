@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/app-shell";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -10,7 +10,9 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ads, cities } from "@/lib/mock-data";
+import { getListings } from "@/lib/api/listings";
+import { ads } from "@/lib/mock-data";
+import type { ProfessionalAd } from "@/lib/types";
 import { currency, cn } from "@/lib/utils";
 
 const quickFilters = ["Premium", "Livre agora", "Ate R$ 500", "Verificadas"];
@@ -23,6 +25,9 @@ const scrollbarStyles = `
 `;
 
 export function FeedScreen() {
+  const [adsData, setAdsData] = useState<ProfessionalAd[]>(ads);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [visibleCount, setVisibleCount] = useState(6);
   const [showFilters, setShowFilters] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -36,6 +41,33 @@ export function FeedScreen() {
   const [selectedEthnicities, setSelectedEthnicities] = useState<string[]>([]);
   const [selectedHairs, setSelectedHairs] = useState<string[]>([]);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadListings = async () => {
+      setInitialLoading(true);
+      setLoadError(null);
+
+      try {
+        const response = await getListings({ page: 1, pageSize: 60 });
+        if (!active) return;
+        setAdsData(response.items);
+      } catch {
+        if (!active) return;
+        setAdsData(ads);
+        setLoadError("Nao foi possivel carregar os anuncios da API neste momento. Exibindo dados de demonstracao.");
+      } finally {
+        if (active) setInitialLoading(false);
+      }
+    };
+
+    loadListings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Funções auxiliares para os filtros de multipla escolha
   const toggleSelection = (setter: React.Dispatch<React.SetStateAction<string[]>>, value: string) => {
@@ -52,13 +84,18 @@ export function FeedScreen() {
     setSelectedServices([]);
   };
 
+  const cityOptions = useMemo(() => {
+    const dynamicCities = Array.from(new Set(adsData.map((ad) => ad.city))).filter(Boolean);
+    return dynamicCities.length > 0 ? dynamicCities : Array.from(new Set(ads.map((ad) => ad.city)));
+  }, [adsData]);
+
   const filteredAds = useMemo(() => {
-    return ads.filter((ad) => {
+    return adsData.filter((ad) => {
       const cityMatch = selectedCity === "all" || ad.city === selectedCity;
       const priceMatch = ad.startingPrice <= maxPrice;
       return cityMatch && priceMatch;
     });
-  }, [maxPrice, selectedCity, selectedGender, selectedAdTypes, selectedEthnicities, selectedHairs, selectedServices]);
+  }, [adsData, maxPrice, selectedCity]);
 
   const visibleAds = filteredAds.slice(0, visibleCount);
 
@@ -74,7 +111,7 @@ export function FeedScreen() {
             className="w-full rounded-lg border-wine-200 bg-wine-50/50 py-2.5 pl-3 pr-10 text-sm font-medium focus:border-wine-700 focus:ring-1 focus:ring-wine-700 outline-none appearance-none"
           >
             <option value="all">Todas as regiões</option>
-            {cities.map((city) => <option key={city} value={city}>{city}</option>)}
+            {cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}
           </select>
           <span className="absolute right-3 top-2.5 text-wine-700/50 pointer-events-none">▼</span>
         </div>
@@ -209,6 +246,7 @@ export function FeedScreen() {
             </div>
           </div>
           {simulateError ? <Card className="border-red-200 bg-red-50 text-red-800">Nao foi possivel atualizar os anuncios agora. Tente novamente em alguns instantes.</Card> : null}
+          {loadError ? <Card className="border-amber-200 bg-amber-50 text-amber-900">{loadError}</Card> : null}
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[300px_1fr]">
@@ -255,7 +293,7 @@ export function FeedScreen() {
               </div>
             </div>
 
-            {loadingMore ? (
+            {initialLoading || loadingMore ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">{Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-80" />)}</div>
             ) : visibleAds.length === 0 ? (
               <EmptyState title="Nenhum anuncio encontrado" description="Ajuste os filtros para encontrar perfis compativeis com sua busca." actionLabel="Resetar filtros" onAction={clearFilters} />
