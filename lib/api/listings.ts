@@ -1,8 +1,11 @@
 import { apiRequest } from "@/lib/api/client";
 import type {
+  CreateListingRequest,
   ListingDetailsResponse,
+  ListingPriceResponse,
   ListingSummaryResponse,
   PagedResponse,
+  UpdateListingRequest,
 } from "@/lib/api/types";
 import type { AvailabilityStatus, ProfessionalAd } from "@/lib/types";
 
@@ -27,6 +30,43 @@ function toNumber(value: number | string | null | undefined) {
     return Number.isFinite(parsed) ? parsed : 0;
   }
   return 0;
+}
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+function findOneHourPrice(prices: ListingPriceResponse[] | undefined) {
+  if (!prices?.length) return null;
+  return (
+    prices.find((item) => normalizeText(item.name) === "1 hora") ??
+    prices.find((item) => normalizeText(item.name) === "1h") ??
+    prices.find((item) => normalizeText(item.name).includes("hora")) ??
+    null
+  );
+}
+
+function mapPricesTable(prices: ListingPriceResponse[] | undefined) {
+  if (!prices?.length) return [{ label: "Consultar valores no chat", price: 0, isNegotiable: true }];
+
+  return prices.map((item) => ({
+    label: item.name,
+    price: item.price === null || typeof item.price === "undefined" ? null : toNumber(item.price),
+    isNegotiable: item.isNegotiable,
+    isNotRealizable: item.isNotRealizable,
+  }));
+}
+
+function normalizeImageSource(source?: string | null) {
+  const value = (source ?? "").trim();
+  if (!value) return FALLBACK_COVER_IMAGE;
+  if (value.startsWith("data:")) return value;
+  if (value.startsWith("http://") || value.startsWith("https://")) return value;
+  return `data:image/jpeg;base64,${value}`;
 }
 
 export function normalizeAvailabilityStatus(value: number | string): AvailabilityStatus {
@@ -62,7 +102,12 @@ export function extractListingIdFromSlug(slug: string) {
 }
 
 export function mapListingSummaryToAd(listing: ListingSummaryResponse): ProfessionalAd {
-  const price = toNumber(listing.monthlyPrice);
+  const oneHourPrice = findOneHourPrice(listing.prices);
+  const oneHourValue = oneHourPrice?.price === null || typeof oneHourPrice?.price === "undefined" ? null : toNumber(oneHourPrice.price);
+  const hasFixedHourPrice = Boolean(oneHourPrice && !oneHourPrice.isNegotiable && !oneHourPrice.isNotRealizable && oneHourValue !== null && oneHourValue > 0);
+  const subscriptionPrice = toNumber(listing.monthlyPrice);
+  const price = hasFixedHourPrice ? (oneHourValue ?? 0) : subscriptionPrice;
+  const startingPriceLabel = oneHourPrice?.isNotRealizable ? "Nao realiza" : oneHourPrice?.isNegotiable ? "A combinar" : undefined;
 
   return {
     id: String(listing.listingId),
@@ -76,14 +121,16 @@ export function mapListingSummaryToAd(listing: ListingSummaryResponse): Professi
     shortDescription: listing.description || "Perfil publicado na plataforma.",
     description: listing.description || "Perfil publicado na plataforma.",
     startingPrice: price,
+    startingPriceLabel,
+    subscriptionPrice,
     heightCm: 0,
     ethnicity: "Nao informado",
     hairColor: "Nao informado",
     services: [],
-    pricingTable: [{ label: "Valor inicial", price }],
+    pricingTable: mapPricesTable(listing.prices),
     status: normalizeAvailabilityStatus(listing.availability),
-    adTier: price >= 600 ? "premium" : "normal",
-    images: [listing.coverUrl || FALLBACK_COVER_IMAGE],
+    adTier: subscriptionPrice >= 600 ? "premium" : "normal",
+    images: [normalizeImageSource(listing.coverUrl)],
     rating: 0,
     reviewsCount: 0,
     profileViews: toNumber(listing.viewCount),
@@ -92,10 +139,14 @@ export function mapListingSummaryToAd(listing: ListingSummaryResponse): Professi
 
 export function mapListingDetailsToAd(listing: ListingDetailsResponse): ProfessionalAd {
   const imageUrls = listing.medias
-    ?.map((media) => media.fileUrl)
+    ?.map((media) => normalizeImageSource(media.fileUrl))
     .filter((url): url is string => typeof url === "string" && url.length > 0);
 
   const cover = imageUrls && imageUrls.length > 0 ? imageUrls : [FALLBACK_COVER_IMAGE];
+
+  const oneHourPrice = findOneHourPrice(listing.prices);
+  const oneHourValue = oneHourPrice?.price === null || typeof oneHourPrice?.price === "undefined" ? null : toNumber(oneHourPrice.price);
+  const hasFixedHourPrice = Boolean(oneHourPrice && !oneHourPrice.isNegotiable && !oneHourPrice.isNotRealizable && oneHourValue !== null && oneHourValue > 0);
 
   return {
     id: String(listing.listingId),
@@ -108,12 +159,13 @@ export function mapListingDetailsToAd(listing: ListingDetailsResponse): Professi
     category: "Profissional",
     shortDescription: listing.description || "Perfil publicado na plataforma.",
     description: listing.description || "Perfil publicado na plataforma.",
-    startingPrice: 0,
+    startingPrice: hasFixedHourPrice ? (oneHourValue ?? 0) : 0,
+    startingPriceLabel: oneHourPrice?.isNotRealizable ? "Nao realiza" : oneHourPrice?.isNegotiable ? "A combinar" : undefined,
     heightCm: 0,
     ethnicity: "Nao informado",
     hairColor: "Nao informado",
     services: listing.services ?? [],
-    pricingTable: [{ label: "Consultar valores no chat", price: 0 }],
+    pricingTable: mapPricesTable(listing.prices),
     status: normalizeAvailabilityStatus(listing.availability),
     adTier: listing.listingStatus?.toLowerCase().includes("premium") ? "premium" : "normal",
     images: cover,
@@ -121,6 +173,12 @@ export function mapListingDetailsToAd(listing: ListingDetailsResponse): Professi
     reviewsCount: 0,
     profileViews: toNumber(listing.viewCount),
   };
+}
+
+function looksLikeListingDetails(value: unknown): value is ListingDetailsResponse {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<ListingDetailsResponse>;
+  return typeof candidate.listingId !== "undefined" && Array.isArray(candidate.medias) && Array.isArray(candidate.services);
 }
 
 export async function getListings(params: GetListingsParams = {}) {
@@ -148,9 +206,33 @@ export async function getListingDetails(listingId: number | string) {
   return mapListingDetailsToAd(response);
 }
 
+export function getListingDetailsRaw(listingId: number | string) {
+  return apiRequest<ListingDetailsResponse>(`/api/Listings/${listingId}`);
+}
+
 export async function getMyListings(token: string) {
-  const response = await apiRequest<ListingSummaryResponse[]>("/api/Listings/me", { token });
-  return response.map(mapListingSummaryToAd);
+  const response = await apiRequest<Array<ListingSummaryResponse | ListingDetailsResponse>>("/api/Listings/me", { token });
+  return response.map((item) => (looksLikeListingDetails(item) ? mapListingDetailsToAd(item) : mapListingSummaryToAd(item)));
+}
+
+export async function getMyListingsRaw(token: string) {
+  return apiRequest<Array<ListingSummaryResponse | ListingDetailsResponse>>("/api/Listings/me", { token });
+}
+
+export function createListing(payload: CreateListingRequest, token: string) {
+  return apiRequest<ListingDetailsResponse>("/api/Listings", {
+    method: "POST",
+    body: payload,
+    token,
+  });
+}
+
+export function updateListing(listingId: number | string, payload: UpdateListingRequest, token: string) {
+  return apiRequest<ListingDetailsResponse>(`/api/Listings/${listingId}`, {
+    method: "PUT",
+    body: payload,
+    token,
+  });
 }
 
 export function publishListing(listingId: number | string, token: string) {

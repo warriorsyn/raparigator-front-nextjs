@@ -1,5 +1,9 @@
 import { apiRequest } from "@/lib/api/client";
-import type { GenderResponse, ReferenceItemResponse } from "@/lib/api/types";
+import type {
+  GenderResponse,
+  ListingPlanResponse,
+  ReferenceItemResponse,
+} from "@/lib/api/types";
 
 export function getCountries() {
   return apiRequest<ReferenceItemResponse[]>("/api/reference/countries");
@@ -34,5 +38,9 @@ export function getServicesCatalog() {
 }
 
 export function getListingPlans() {
-  return apiRequest<ReferenceItemResponse[]>("/api/reference/listing-plans");
+  return apiRequest<ListingPlanResponse[]>("/api/reference/listing-plans");
+}
+
+export function getListingPrices() {
+  return apiRequest<ReferenceItemResponse[]>("/api/reference/listing-prices");
 }

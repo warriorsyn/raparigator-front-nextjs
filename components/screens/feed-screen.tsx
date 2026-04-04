@@ -324,7 +324,7 @@ export function FeedScreen() {
                           )}
                         </div>
                         <div className="flex items-center justify-between pt-2 border-t border-zinc-100">
-                          <p className="text-[10px] uppercase font-bold text-zinc-400">A partir de <span className="text-sm font-black text-zinc-900 block">{currency(ad.startingPrice)}</span></p>
+                          <p className="text-[10px] uppercase font-bold text-zinc-400">A partir de <span className="text-sm font-black text-zinc-900 block">{ad.startingPriceLabel ?? currency(ad.startingPrice)}</span></p>
                           <span className="text-xs font-bold text-wine-700 opacity-0 transition-opacity group-hover:opacity-100 bg-wine-50 px-3 py-1.5 rounded-lg">Ver perfil</span>
                         </div>
                       </div>

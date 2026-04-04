@@ -31,7 +31,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   return {
     title: `${ad.artisticName} em ${ad.city} | Sigillus`,
-    description: `${ad.shortDescription} A partir de R$ ${ad.startingPrice}.`,
+    description: `${ad.shortDescription} ${ad.startingPriceLabel ? `Valor: ${ad.startingPriceLabel}.` : `A partir de R$ ${ad.startingPrice}.`}`,
   };
 }
 

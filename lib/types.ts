@@ -14,11 +14,18 @@ export interface ProfessionalAd {
   shortDescription: string;
   description: string;
   startingPrice: number;
+  startingPriceLabel?: string;
+  subscriptionPrice?: number;
   heightCm: number;
   ethnicity: string;
   hairColor: string;
   services: string[];
-  pricingTable: Array<{ label: string; price: number }>;
+  pricingTable: Array<{
+    label: string;
+    price: number | null;
+    isNegotiable?: boolean;
+    isNotRealizable?: boolean;
+  }>;
   status: AvailabilityStatus;
   adTier: AdCategory;
   images: string[];

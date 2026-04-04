@@ -18,6 +18,13 @@ interface AdDetailsScreenProps {
   slug: string;
 }
 
+function renderPriceValue(row: { price: number | null; isNegotiable?: boolean; isNotRealizable?: boolean }) {
+  if (row.isNotRealizable) return "Nao realiza";
+  if (row.isNegotiable) return "A combinar";
+  if (typeof row.price === "number" && row.price > 0) return currency(row.price);
+  return "Consultar";
+}
+
 export function AdDetailsScreen({ slug }: AdDetailsScreenProps) {
   const [riskTarget, setRiskTarget] = useState<"WhatsApp" | "Telegram" | null>(null);
   const [ad, setAd] = useState<ProfessionalAd | null>(null);
@@ -116,7 +123,7 @@ export function AdDetailsScreen({ slug }: AdDetailsScreenProps) {
                   {ad.pricingTable.map((row) => (
                     <li key={row.label} className="flex items-center justify-between rounded-xl bg-zinc-50 px-3 py-2">
                       <span>{row.label}</span>
-                      <strong>{currency(row.price)}</strong>
+                      <strong>{renderPriceValue(row)}</strong>
                     </li>
                   ))}
                 </ul>
@@ -140,7 +147,7 @@ export function AdDetailsScreen({ slug }: AdDetailsScreenProps) {
           <aside className="space-y-3">
             <Card className="space-y-3">
               <p className="text-sm text-zinc-600">A partir de</p>
-              <p className="text-2xl font-semibold text-zinc-900">{currency(ad.startingPrice)}</p>
+              <p className="text-2xl font-semibold text-zinc-900">{ad.startingPriceLabel ?? currency(ad.startingPrice)}</p>
               <Button fullWidth>Iniciar chat</Button>
               <Link href="/checkout" className="block"><Button fullWidth variant="secondary">Contratar com custodia</Button></Link>
               <Button fullWidth variant="ghost" onClick={() => setRiskTarget("WhatsApp")}>Abrir WhatsApp</Button>

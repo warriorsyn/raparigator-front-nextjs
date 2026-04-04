@@ -1,4 +1,4 @@
-WWWWWWexport type ApiId = number | string;
+export type ApiId = number | string;
 
 export interface AuthResponse {
   userId: ApiId;
@@ -82,6 +82,39 @@ export interface ListingSummaryResponse {
   monthlyPrice: number | string;
   availability: number | string;
   viewCount: number | string;
+  prices: ListingPriceResponse[];
+}
+
+export interface ListingMediaInput {
+  mediaType: number | string;
+  fileUrl: string;
+  caption?: string | null;
+  displayOrder: number;
+  isProfileCover: boolean;
+}
+
+export interface CreateListingRequest {
+  cityId: ApiId;
+  listingPlanId: ApiId;
+  title: string;
+  description: string;
+  currencyCode: string;
+  availability: number | string;
+  isVisible: boolean;
+  publishNow: boolean;
+  serviceCatalogIds: ApiId[];
+  prices: ListingPriceInput[];
+  medias: ListingMediaInput[];
+}
+
+export type UpdateListingRequest = CreateListingRequest;
+
+export interface ListingPlanResponse {
+  id: ApiId;
+  name: string;
+  monthlyPrice: number | string;
+  description?: string | null;
+  isProfessionalOnly: boolean;
 }
 
 export interface ListingMediaResponse {
@@ -108,7 +141,23 @@ export interface ListingDetailsResponse {
   publishedAt?: string | null;
   viewCount: number | string;
   services: string[];
+  prices: ListingPriceResponse[];
   medias: ListingMediaResponse[];
+}
+
+export interface ListingPriceInput {
+  listingPriceId: ApiId;
+  isNegotiable: boolean;
+  isNotRealizable: boolean;
+  price?: number | string | null;
+}
+
+export interface ListingPriceResponse {
+  listingPriceId: ApiId;
+  name: string;
+  isNegotiable: boolean;
+  isNotRealizable: boolean;
+  price?: number | string | null;
 }
 
 export interface PagedResponse<T> {
