@@ -200,6 +200,7 @@ export function ProfessionalDashboardScreen() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [feedback, setFeedback] = useState<ToastState>(null);
 
   const [cities, setCities] = useState<ReferenceItemResponse[]>([]);
@@ -576,6 +577,40 @@ export function ProfessionalDashboardScreen() {
     }
   };
 
+  const handleToggleVisibility = async () => {
+    if (selectedListingId === "new") {
+      setForm((current) => ({ ...current, isVisible: !current.isVisible }));
+      showToast({
+        title: "Status local alterado",
+        message: "Crie o anuncio primeiro para persistir o status no backend.",
+        type: "info",
+      });
+      return;
+    }
+
+    if (!token || togglingVisibility) return;
+
+    setTogglingVisibility(true);
+    try {
+      const nextVisible = !form.isVisible;
+      const payload = toPayload({ ...form, isVisible: nextVisible, publishNow: false });
+      const response = await updateListing(selectedListingId, payload, token);
+      const refreshed = await refreshMyListings();
+      setForm((current) => ({ ...current, isVisible: response.isVisible, availability: getAvailabilityValue(response.availability) }));
+      if (refreshed) setForm(mapDetailsToForm(response, cities, servicesCatalog, listingPricesCatalog, listingPlans, refreshed));
+      showToast({
+        title: response.isVisible ? "Anuncio ativado" : "Anuncio pausado",
+        message: response.isVisible ? "Seu anuncio voltou a ficar visivel para clientes." : "Seu anuncio foi pausado com sucesso.",
+        type: "success",
+      });
+    } catch (error) {
+      const message = error instanceof ApiError ? error.message : "Nao foi possivel atualizar o status do anuncio.";
+      showToast({ title: "Falha ao atualizar status", message, type: "error" });
+    } finally {
+      setTogglingVisibility(false);
+    }
+  };
+
   if (!bootstrapped) {
     return (
       <AppShell>
@@ -672,8 +707,8 @@ export function ProfessionalDashboardScreen() {
                         <p className="text-lg font-bold text-zinc-900">{form.isVisible ? "Ativo e visivel" : "Pausado"}</p>
                       </div>
                     </div>
-                    <Button variant="secondary" onClick={() => setForm((current) => ({ ...current, isVisible: !current.isVisible }))}>
-                      {form.isVisible ? "Pausar anuncio" : "Ativar anuncio"}
+                    <Button variant="secondary" disabled={loading || saving || publishing || togglingVisibility} onClick={() => void handleToggleVisibility()}>
+                      {togglingVisibility ? "Atualizando..." : form.isVisible ? "Pausar anuncio" : "Ativar anuncio"}
                     </Button>
                   </Card>
 
