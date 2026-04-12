@@ -10,6 +10,7 @@ import type {
   ServiceOption,
   PricingItem,
   LocationVenue,
+  LocationAddress,
   ProfileCharacteristics,
   AdPreview,
 } from "./types";
@@ -65,6 +66,35 @@ const defaultVenues: LocationVenue[] = [
   { key: "parties", label: "Festas", checked: false },
 ];
 
+const defaultTravelScope = "cidade" as const;
+
+function createLocationId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `location-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function buildInitialLocation(ad: AdPreview): LocationAddress[] {
+  if (!ad.city || !ad.state) {
+    return [];
+  }
+
+  return [
+    {
+      id: createLocationId(),
+      label: `${ad.city}, ${ad.state}`,
+      addressLine: ad.neighborhood ?? "",
+      city: ad.city,
+      state: ad.state,
+      country: "Brasil",
+      notes: "",
+      active: true,
+    },
+  ];
+}
+
 const defaultAvailability: AvailabilityDay[] = [
   { day: "SEG", enabled: true, start: "10:00", end: "22:00" },
   { day: "TER", enabled: true, start: "10:00", end: "22:00" },
@@ -100,8 +130,11 @@ function buildInitialState(ad: AdPreview): ProfileFormState {
     services,
     pricing,
     venues: defaultVenues,
+    locationAddresses: buildInitialLocation(ad),
     locationState: ad.state,
     locationCity: ad.city,
+    acceptsTravel: false,
+    travelScope: defaultTravelScope,
     showAvailability: false,
     availability: defaultAvailability,
   };
@@ -125,7 +158,8 @@ function calculateProfileScore(state: ProfileFormState): ProfileScore {
   const servicesScore = selectedServices >= 3 ? 15 : selectedServices === 2 ? 10 : selectedServices === 1 ? 5 : 0;
 
   // Location (0-15): state + city + at least 1 venue = 15, partial = 8, none = 0
-  const hasLocation = state.locationState.trim().length > 0 && state.locationCity.trim().length > 0;
+  const activeLocation = state.locationAddresses.find((location) => location.active);
+  const hasLocation = Boolean(activeLocation?.state.trim().length && activeLocation?.city.trim().length);
   const hasVenue = state.venues.some((v) => v.checked);
   const locationScore = hasLocation && hasVenue ? 15 : hasLocation || hasVenue ? 8 : 0;
 
@@ -168,9 +202,14 @@ function generateSmartTips(state: ProfileFormState): SmartTip[] {
     tips.push({ id: "long-desc", text: "Complete sua descrição com pelo menos 50 caracteres para mais conversões", priority: "medium" });
   }
 
+  const activeLocation = state.locationAddresses.find((location) => location.active);
   const hasVenue = state.venues.some((v) => v.checked);
-  if (!hasVenue && state.locationState.trim().length > 0) {
+  if (!hasVenue && activeLocation) {
     tips.push({ id: "venue", text: "Informe onde você atende para facilitar o encontro com clientes", priority: "low" });
+  }
+
+  if (!activeLocation) {
+    tips.push({ id: "location", text: "Cadastre ao menos um endereço ativo para aumentar a precisão do seu perfil", priority: "high" });
   }
 
   return tips;
@@ -274,6 +313,11 @@ export function useProfileForm(ad: AdPreview) {
     [scheduleSave],
   );
 
+  const updateForm = useCallback((updater: (current: ProfileFormState) => ProfileFormState) => {
+    setForm((current) => updater(current));
+    scheduleSave();
+  }, [scheduleSave]);
+
   return {
     form,
     saveStatus,
@@ -283,6 +327,7 @@ export function useProfileForm(ad: AdPreview) {
     setForm,
     updateField,
     updateNestedField,
+    updateForm,
     triggerSave,
     manualSave,
   };

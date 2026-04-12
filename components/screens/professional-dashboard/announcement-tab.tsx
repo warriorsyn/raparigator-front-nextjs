@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
-import type { AdPreview, AdStatus } from "./types";
+import type { AdPreview, AdStatus, AvailabilityDay, LocationAddress, ProfileCharacteristics, PricingItem, ServiceOption, TravelScope } from "./types";
 import { useProfileForm } from "./use-profile-form";
 
 // ─── Options para selects ─────────────────────────────────────────
@@ -15,6 +16,136 @@ const HAIR_COLOR_OPTIONS = ["", "Preto", "Castanho", "Loiro", "Ruivo", "Colorido
 const SMOKER_OPTIONS = ["", "Sim", "Não"];
 const VISIBILITY_STATUSES = ["Ativo", "Pausado", "Invisível"] as const;
 type VisibilityStatus = (typeof VISIBILITY_STATUSES)[number];
+
+const TRAVEL_SCOPE_OPTIONS: Array<{ value: TravelScope; label: string; description: string }> = [
+  {
+    value: "cidade",
+    label: "Aceito deslocamento apenas dentro da cidade atual de atendimento",
+    description: "Cobertura restrita à mesma cidade do endereço ativo.",
+  },
+  {
+    value: "estado",
+    label: "Aceito deslocamento apenas dentro do estado atual de atendimento",
+    description: "Cobertura ampliada para outras cidades do mesmo estado.",
+  },
+  {
+    value: "fora_estado",
+    label: "Aceito qualquer deslocamento para fora do estado",
+    description: "Cobertura nacional, sem limitar a fronteiras estaduais.",
+  },
+  {
+    value: "fora_pais",
+    label: "Aceito deslocamento para fora do país",
+    description: "Cobertura internacional, sujeita a negociação prévia.",
+  },
+];
+
+type LocationDraft = {
+  label: string;
+  addressLine: string;
+  city: string;
+  state: string;
+  country: string;
+  notes: string;
+};
+
+type DetectedLocation = LocationDraft & {
+  latitude: number;
+  longitude: number;
+  displayName: string;
+};
+
+function normalizeText(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function createLocationId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `location-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function buildLocationLabel(location: LocationDraft) {
+  if (location.label.trim()) {
+    return location.label.trim();
+  }
+
+  if (location.addressLine.trim()) {
+    return location.addressLine.trim();
+  }
+
+  return `${location.city.trim()}${location.state.trim() ? `, ${location.state.trim()}` : ""}`.trim();
+}
+
+function createDraftFromLocation(location: Partial<LocationDraft> = {}): LocationDraft {
+  return {
+    label: location.label ?? "",
+    addressLine: location.addressLine ?? "",
+    city: location.city ?? "",
+    state: location.state ?? "",
+    country: location.country ?? "",
+    notes: location.notes ?? "",
+  };
+}
+
+function isSameLocation(a: Partial<LocationDraft>, b: Partial<LocationDraft>) {
+  return normalizeText(a.city ?? "") === normalizeText(b.city ?? "") && normalizeText(a.state ?? "") === normalizeText(b.state ?? "");
+}
+
+function formatLocationSummary(location: LocationAddress) {
+  const parts = [location.addressLine, `${location.city}${location.state ? `, ${location.state}` : ""}`, location.country, location.notes].filter(Boolean);
+  return parts.join(" • ");
+}
+
+async function reverseGeocode(latitude: number, longitude: number): Promise<DetectedLocation> {
+  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
+
+  if (!response.ok) {
+    throw new Error("Falha ao consultar localização");
+  }
+
+  const data = await response.json() as {
+    display_name?: string;
+    address?: Record<string, string | undefined>;
+  };
+
+  const address = data.address ?? {};
+  const city = address.city ?? address.town ?? address.village ?? address.municipality ?? address.county ?? "";
+  const state = address.state ?? address.region ?? address.province ?? "";
+  const country = address.country ?? "";
+  const addressLine = [address.road, address.suburb, address.neighbourhood, address.city_district].filter(Boolean).join(", ");
+  const label = (city || state) ? `${city}${state ? `, ${state}` : ""}` : data.display_name ?? "Local detectado";
+  const formattedAddressLine = addressLine || data.display_name || "";
+
+  return {
+    label,
+    addressLine: formattedAddressLine,
+    city,
+    state,
+    country,
+    notes: "",
+    latitude,
+    longitude,
+    displayName: data.display_name ?? "",
+  };
+}
+
+function buildLocationFromDetected(detected: DetectedLocation): LocationDraft {
+  return {
+    label: detected.label || `${detected.city}${detected.state ? `, ${detected.state}` : ""}`,
+    addressLine: detected.addressLine || detected.displayName || "",
+    city: detected.city,
+    state: detected.state,
+    country: detected.country || "",
+    notes: detected.notes,
+  };
+}
 
 export function AnnouncementTab({
   ad,
@@ -27,18 +158,180 @@ export function AnnouncementTab({
   onToggleStatus: () => void;
 }) {
   const formHook = useProfileForm(ad);
-  const { form, saveStatus, lastSavedAt, score, tips, updateField, updateNestedField, manualSave } = formHook;
+  const { form, saveStatus, lastSavedAt, score, tips, updateField, updateNestedField, updateForm, manualSave } = formHook;
 
   // Estado para Modal de Fotos
   const [activePhotoIndex, setActivePhotoIndex] = useState<number | null>(null);
   const [visibilityStatus, setVisibilityStatus] = useState<VisibilityStatus>(status === "Pausado" ? "Pausado" : "Ativo");
   const [isVisibilityMenuOpen, setIsVisibilityMenuOpen] = useState(false);
+  const [isLocationSectionOpen, setIsLocationSectionOpen] = useState(false);
+  const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
+  const [isLocationDecisionOpen, setIsLocationDecisionOpen] = useState(false);
+  const [isLocationDraftOpen, setIsLocationDraftOpen] = useState(false);
+  const [isTravelModalOpen, setIsTravelModalOpen] = useState(false);
+  const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
+  const [pendingLocationDraft, setPendingLocationDraft] = useState<LocationDraft>(createDraftFromLocation());
+  const [draftEditingLocationId, setDraftEditingLocationId] = useState<string | null>(null);
+  const [locationStatusMessage, setLocationStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (status === "Ativo" || status === "Pausado") {
-      setVisibilityStatus(status);
+    if (!highlightedLocationId) {
+      return;
     }
-  }, [status]);
+
+    const timeoutId = setTimeout(() => {
+      setHighlightedLocationId(null);
+    }, 2400);
+
+    return () => clearTimeout(timeoutId);
+  }, [highlightedLocationId]);
+
+  const isLocationSectionExpanded = isLocationSectionOpen || isLocationDraftOpen || isTravelModalOpen || isLocationDecisionOpen;
+
+  const activeLocation = form.locationAddresses.find((location) => location.active) ?? null;
+
+  const activateLocation = (locationId: string) => {
+    updateForm((current) => {
+      const nextLocations = current.locationAddresses.map((location) => ({
+        ...location,
+        active: location.id === locationId,
+      }));
+
+      const nextActive = nextLocations.find((location) => location.active) ?? null;
+
+      return {
+        ...current,
+        locationAddresses: nextLocations,
+        locationState: nextActive?.state ?? current.locationState,
+        locationCity: nextActive?.city ?? current.locationCity,
+      };
+    });
+
+    setHighlightedLocationId(locationId);
+  };
+
+  const saveLocationDraft = () => {
+    const nextLabel = buildLocationLabel(pendingLocationDraft);
+    const nextAddress: LocationAddress = {
+      id: draftEditingLocationId ?? createLocationId(),
+      label: nextLabel,
+      addressLine: pendingLocationDraft.addressLine.trim(),
+      city: pendingLocationDraft.city.trim(),
+      state: pendingLocationDraft.state.trim(),
+      country: pendingLocationDraft.country.trim(),
+      notes: pendingLocationDraft.notes.trim(),
+      active: true,
+    };
+
+    updateForm((current) => {
+      const isEditing = Boolean(draftEditingLocationId);
+      const withoutEdited = isEditing ? current.locationAddresses.filter((location) => location.id !== draftEditingLocationId) : current.locationAddresses;
+      const nextLocations = withoutEdited.map((location) => ({ ...location, active: false }));
+
+      return {
+        ...current,
+        locationAddresses: [...nextLocations, nextAddress],
+        locationState: nextAddress.state,
+        locationCity: nextAddress.city,
+      };
+    });
+
+    setIsLocationDraftOpen(false);
+    setDraftEditingLocationId(null);
+    setHighlightedLocationId(nextAddress.id);
+    setLocationStatusMessage("Nova localização cadastrada e definida como ativa.");
+  };
+
+  const openLocationDraft = (draft: LocationDraft, locationId: string | null = null) => {
+    setPendingLocationDraft(draft);
+    setDraftEditingLocationId(locationId);
+    setIsLocationDraftOpen(true);
+    setIsLocationSectionOpen(true);
+  };
+
+  const captureDeviceLocation = async () => {
+    if (!navigator.geolocation) {
+      throw new Error("Geolocalização indisponível");
+    }
+
+    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+    });
+
+    return reverseGeocode(position.coords.latitude, position.coords.longitude);
+  };
+
+  const runDeviceLocationDetection = async () => {
+    setLocationStatusMessage(null);
+    setIsLocationSectionOpen(true);
+
+    try {
+      const detected = await captureDeviceLocation();
+      setDetectedLocation(detected);
+
+      const matchingRegisteredLocation = form.locationAddresses.find((location) => isSameLocation(location, detected));
+
+      if (matchingRegisteredLocation) {
+        if (matchingRegisteredLocation.id !== activeLocation?.id) {
+          setIsLocationDecisionOpen(true);
+        } else {
+          setIsLocationSectionOpen(true);
+          setHighlightedLocationId(matchingRegisteredLocation.id);
+          setLocationStatusMessage("A localização detectada já corresponde ao endereço ativo atual.");
+        }
+        return;
+      }
+
+      openLocationDraft(buildLocationFromDetected(detected));
+    } catch {
+      setLocationStatusMessage("Permita o acesso à localização para continuar com a detecção automática.");
+    }
+  };
+
+  const handleLocationDecisionConfirm = () => {
+    if (!detectedLocation) {
+      setIsLocationDecisionOpen(false);
+      return;
+    }
+
+    const matchingRegisteredLocation = form.locationAddresses.find((location) => isSameLocation(location, detectedLocation));
+
+    if (!matchingRegisteredLocation) {
+      setIsLocationDecisionOpen(false);
+      openLocationDraft(buildLocationFromDetected(detectedLocation));
+      return;
+    }
+
+    activateLocation(matchingRegisteredLocation.id);
+    setIsLocationDecisionOpen(false);
+    setIsLocationSectionOpen(true);
+    setLocationStatusMessage("Localização ativa atualizada para o endereço detectado.");
+  };
+
+  const handleEditLocation = (location: LocationAddress) => {
+    openLocationDraft(
+      {
+        label: location.label,
+        addressLine: location.addressLine,
+        city: location.city,
+        state: location.state,
+        country: location.country,
+        notes: location.notes,
+      },
+      location.id,
+    );
+  };
+
+  const handleTravelToggle = (enabled: boolean) => {
+    updateField("acceptsTravel", enabled);
+
+    if (enabled) {
+      setIsTravelModalOpen(true);
+      return;
+    }
+
+    setIsTravelModalOpen(false);
+  };
 
   const statusStyles = {
     Ativo: {
@@ -105,6 +398,47 @@ export function AnnouncementTab({
           activeIndex={activePhotoIndex}
           onClose={() => setActivePhotoIndex(null)}
           onChange={(idx) => setActivePhotoIndex(idx)}
+        />
+      )}
+
+      {isLocationDecisionOpen && detectedLocation && (
+        <LocationDecisionModal
+          activeLocation={activeLocation}
+          detectedLocation={detectedLocation}
+          onClose={() => setIsLocationDecisionOpen(false)}
+          onConfirm={handleLocationDecisionConfirm}
+        />
+      )}
+
+      {isLocationDraftOpen && (
+        <LocationDraftModal
+          draft={pendingLocationDraft}
+          onClose={() => {
+            setIsLocationDraftOpen(false);
+            setDraftEditingLocationId(null);
+          }}
+          onChange={setPendingLocationDraft}
+          onConfirm={saveLocationDraft}
+          onDetectLocation={async () => {
+            try {
+              const detected = await captureDeviceLocation();
+              setDetectedLocation(detected);
+              setPendingLocationDraft(buildLocationFromDetected(detected));
+              setLocationStatusMessage("Localização atual aplicada ao rascunho do endereço.");
+            } catch {
+              setLocationStatusMessage("Não foi possível detectar a localização atual agora.");
+            }
+          }}
+          isEditing={Boolean(draftEditingLocationId)}
+        />
+      )}
+
+      {isTravelModalOpen && (
+        <TravelScopeModal
+          scope={form.travelScope}
+          onClose={() => setIsTravelModalOpen(false)}
+          onConfirm={() => setIsTravelModalOpen(false)}
+          onChange={(scope) => updateField("travelScope", scope)}
         />
       )}
 
@@ -208,11 +542,25 @@ export function AnnouncementTab({
             />
           </SectionCard>
 
-          <SectionCard title="Localização" requiredAsterisk icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}>
+          <SectionCard
+            title="Localização"
+            requiredAsterisk
+            icon={<svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>}
+            open={isLocationSectionExpanded}
+            onOpenChange={setIsLocationSectionOpen}
+          >
             <LocationSection
-              state={form.locationState} city={form.locationCity}
-              onStateChange={(v: string) => updateField("locationState", v)}
-              onCityChange={(v: string) => updateField("locationCity", v)}
+              addresses={form.locationAddresses}
+              activeLocation={activeLocation}
+              highlightedLocationId={highlightedLocationId}
+              onDetectLocation={runDeviceLocationDetection}
+              onAddLocation={() => openLocationDraft(createDraftFromLocation())}
+              onEditLocation={handleEditLocation}
+              onToggleActive={activateLocation}
+              onToggleTravel={handleTravelToggle}
+              acceptsTravel={form.acceptsTravel}
+              travelScope={form.travelScope}
+              locationStatusMessage={locationStatusMessage}
             />
           </SectionCard>
 
@@ -255,14 +603,32 @@ export function AnnouncementTab({
 
 // ─── Componentes Visuais do Redesign ──────────────────────────────
 
-function SectionCard({ title, icon, children, requiredAsterisk }: { title: string, icon: React.ReactNode, children: React.ReactNode, requiredAsterisk?: boolean }) {
-  const [isOpen, setIsOpen] = useState(false);
+function SectionCard({
+  title,
+  icon,
+  children,
+  requiredAsterisk,
+  open,
+  onOpenChange,
+  defaultOpen = false,
+}: {
+  title: string;
+  icon: React.ReactNode;
+  children: React.ReactNode;
+  requiredAsterisk?: boolean;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  defaultOpen?: boolean;
+}) {
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isOpen = open ?? internalOpen;
+  const handleOpenChange = onOpenChange ?? setInternalOpen;
 
   return (
     <div className="bg-white rounded-2xl shadow-sm border border-zinc-100 overflow-hidden">
       <button
         type="button"
-        onClick={() => setIsOpen((v) => !v)}
+        onClick={() => handleOpenChange(!isOpen)}
         aria-expanded={isOpen}
         className="w-full p-5 sm:p-6 bg-zinc-50/50 border-b border-zinc-100 flex items-center justify-between gap-4 text-left cursor-pointer hover:bg-zinc-100/60 transition-colors"
       >
@@ -388,7 +754,7 @@ function FormSelect({ label, value, options, onChange }: { label: string, value:
 
 // ─── Seções Específicas ──────────────────────────────────────────
 
-function CharacteristicsSection({ characteristics: c, onUpdate }: any) {
+function CharacteristicsSection({ characteristics: c, onUpdate }: { characteristics: ProfileCharacteristics; onUpdate: (key: keyof ProfileCharacteristics, value: string) => void }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
       <FormSelect label="Gênero" value={c.gender} options={GENDER_OPTIONS} onChange={(v) => onUpdate("gender", v)} />
@@ -401,7 +767,12 @@ function CharacteristicsSection({ characteristics: c, onUpdate }: any) {
   )
 }
 
-function PricingSection({ pricing, onUpdate, onToggleDisabled, onAddCustom }: any) {
+function PricingSection({ pricing, onUpdate, onToggleDisabled, onAddCustom }: {
+  pricing: Array<PricingItem & { isCustom?: boolean }>;
+  onUpdate: (idx: number, field: string, value: string | number) => void;
+  onToggleDisabled: (idx: number) => void;
+  onAddCustom: (name: string, price: string | number) => void;
+}) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [customName, setCustomName] = useState("");
   const [customPrice, setCustomPrice] = useState("");
@@ -417,7 +788,7 @@ function PricingSection({ pricing, onUpdate, onToggleDisabled, onAddCustom }: an
 
   return (
     <div className="space-y-4">
-      {pricing.map((item: any, idx: number) => (
+      {pricing.map((item, idx: number) => (
         <div key={idx} className={cn("flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 sm:p-5 rounded-xl border transition-all gap-4", item.disabled ? "bg-zinc-50 border-zinc-100 opacity-60" : "bg-white border-zinc-200 shadow-sm")}>
           <div className="flex items-center gap-4 w-full sm:w-auto">
             <div className="w-10 h-10 bg-zinc-50 rounded-lg flex items-center justify-center border border-zinc-200 shrink-0">
@@ -471,25 +842,322 @@ function PricingSection({ pricing, onUpdate, onToggleDisabled, onAddCustom }: an
   )
 }
 
-function LocationSection({ state, city, onStateChange, onCityChange }: any) {
+function LocationSection({
+  addresses,
+  activeLocation,
+  highlightedLocationId,
+  onDetectLocation,
+  onAddLocation,
+  onEditLocation,
+  onToggleActive,
+  onToggleTravel,
+  acceptsTravel,
+  travelScope,
+  locationStatusMessage,
+}: {
+  addresses: LocationAddress[];
+  activeLocation: LocationAddress | null;
+  highlightedLocationId: string | null;
+  onDetectLocation: () => void;
+  onAddLocation: () => void;
+  onEditLocation: (location: LocationAddress) => void;
+  onToggleActive: (locationId: string) => void;
+  onToggleTravel: (enabled: boolean) => void;
+  acceptsTravel: boolean;
+  travelScope: TravelScope;
+  locationStatusMessage: string | null;
+}) {
+  const activeSummary = activeLocation ? formatLocationSummary(activeLocation) : "Nenhum endereço ativo no momento.";
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <label className="block text-[11px] font-black uppercase tracking-widest text-zinc-500">Sede Principal</label>
-        <button className="text-[11px] font-bold text-wine-700 border border-wine-200 bg-wine-50 px-2.5 py-1.5 rounded-lg hover:bg-wine-100 transition-colors flex items-center gap-1 cursor-pointer">
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+    <div className="space-y-5">
+      {locationStatusMessage ? (
+        <div className="rounded-xl border border-wine-200 bg-wine-50 px-4 py-3 text-sm text-wine-900">
+          {locationStatusMessage}
+        </div>
+      ) : null}
+
+      <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 sm:p-5 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-zinc-500">Deslocamento opcional</p>
+            <p className="text-sm text-zinc-600">Marque se você aceita se deslocar para atender em outros locais.</p>
+            {acceptsTravel ? (
+              <p className="text-xs font-semibold text-wine-700">Cobertura atual: {TRAVEL_SCOPE_OPTIONS.find((option) => option.value === travelScope)?.label}</p>
+            ) : (
+              <p className="text-xs font-semibold text-zinc-500">Desativado no momento.</p>
+            )}
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label="Aceita deslocamento">
+            <input type="checkbox" checked={acceptsTravel} onChange={(event) => onToggleTravel(event.target.checked)} className="sr-only peer" />
+            <div className="h-6 w-11 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-wine-700 peer-checked:after:translate-x-full" />
+          </label>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-zinc-500">Endereço ativo</p>
+          <p className="mt-1 text-sm text-zinc-700">{activeSummary}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onDetectLocation}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-wine-200 bg-wine-50 px-3.5 py-2 text-sm font-bold text-wine-700 transition hover:bg-wine-100"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
           Detectar localização atual
         </button>
       </div>
-      <div className="grid grid-cols-2 gap-4">
-        <FormInput label="Estado" value={state} onChange={onStateChange} placeholder="Ex: SP" />
-        <FormInput label="Cidade" value={city} onChange={onCityChange} placeholder="Ex: São Paulo" />
+
+      <div className="space-y-3">
+        {addresses.length > 0 ? addresses.map((location) => {
+          const isHighlighted = highlightedLocationId === location.id;
+
+          return (
+            <div
+              key={location.id}
+              className={cn(
+                "rounded-2xl border p-4 transition-all",
+                location.active ? "border-wine-200 bg-wine-50/70 shadow-sm" : "border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm",
+                isHighlighted && "ring-2 ring-zinc-300 animate-pulse",
+              )}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="truncate text-sm font-bold text-zinc-900">{location.label}</h4>
+                    {location.active ? (
+                      <span className="rounded-full bg-wine-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.2em] text-wine-700">Ativa</span>
+                    ) : (
+                      <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-[0.2em] text-zinc-600">Inativa</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-zinc-600">{formatLocationSummary(location)}</p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => onEditLocation(location)}
+                    className="rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs font-bold text-zinc-700 transition hover:bg-zinc-50"
+                  >
+                    Editar
+                  </button>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label={`Ativar ${location.label}`}>
+                    <input type="checkbox" checked={location.active} onChange={() => onToggleActive(location.id)} className="sr-only peer" />
+                    <div className={cn("relative h-6 w-11 rounded-full transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:after:translate-x-full", location.active ? "bg-wine-700" : "bg-zinc-300 peer-checked:bg-wine-700")} />
+                  </label>
+                </div>
+              </div>
+
+              {location.addressLine ? <p className="mt-3 text-xs text-zinc-500">{location.addressLine}</p> : null}
+
+              {isHighlighted ? (
+                <div className="mt-3 rounded-xl border border-zinc-300 bg-zinc-100/80 px-3 py-2 text-xs font-semibold text-zinc-700">
+                  Este endereço foi selecionado agora.
+                </div>
+              ) : null}
+            </div>
+          );
+        }) : (
+          <div className="rounded-2xl border border-dashed border-zinc-300 bg-zinc-50/60 p-5 text-sm text-zinc-600">
+            Você ainda não cadastrou endereços de atendimento.
+          </div>
+        )}
       </div>
+
+      <button
+        type="button"
+        onClick={onAddLocation}
+        className="w-full rounded-2xl border-2 border-dashed border-zinc-300 bg-white px-4 py-4 text-sm font-bold text-zinc-600 transition hover:border-wine-300 hover:bg-wine-50 hover:text-wine-700"
+      >
+        Cadastrar novo endereço
+      </button>
     </div>
-  )
+  );
 }
 
-function DescriptionSection({ shortDescription, description, onShortDescChange, onDescChange }: any) {
+function LocationDecisionModal({
+  activeLocation,
+  detectedLocation,
+  onClose,
+  onConfirm,
+}: {
+  activeLocation: LocationAddress | null;
+  detectedLocation: DetectedLocation;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal
+      open
+      title="Alterar localização ativa?"
+      description="Detectamos uma localização diferente da ativa no seu dispositivo. Você deseja trocar agora?"
+      onClose={onClose}
+      actions={
+        <>
+          <Button variant="secondary" fullWidth onClick={onClose}>
+            Agora não
+          </Button>
+          <Button fullWidth onClick={onConfirm}>
+            Sim, alterar
+          </Button>
+        </>
+      }
+      size="md"
+    >
+      <div className="space-y-3">
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-zinc-500">Endereço ativo atual</p>
+          <p className="mt-2 text-sm font-semibold text-zinc-900">{activeLocation ? formatLocationSummary(activeLocation) : "Nenhum endereço ativo"}</p>
+        </div>
+        <div className="rounded-2xl border border-wine-200 bg-wine-50 p-4">
+          <p className="text-[11px] font-black uppercase tracking-[0.24em] text-wine-700">Localização detectada</p>
+          <p className="mt-2 text-sm font-semibold text-wine-950">{detectedLocation.label}</p>
+          <p className="mt-1 text-sm text-wine-900/80">{detectedLocation.addressLine || detectedLocation.displayName || `${detectedLocation.city}${detectedLocation.state ? `, ${detectedLocation.state}` : ""}`}</p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function LocationDraftModal({
+  draft,
+  onClose,
+  onChange,
+  onConfirm,
+  onDetectLocation,
+  isEditing,
+}: {
+  draft: LocationDraft;
+  onClose: () => void;
+  onChange: (draft: LocationDraft) => void;
+  onConfirm: () => void;
+  onDetectLocation: () => Promise<void> | void;
+  isEditing: boolean;
+}) {
+  const canSave = draft.city.trim().length > 0 && draft.state.trim().length > 0 && draft.country.trim().length > 0;
+
+  return (
+    <Modal
+      open
+      title={isEditing ? "Editar endereço de atendimento" : "Cadastrar novo endereço"}
+      description="Preencha os campos abaixo ou use a detecção automática para ajustar os dados do local."
+      onClose={onClose}
+      size="md"
+      actions={
+        <>
+          <Button variant="secondary" fullWidth onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button fullWidth onClick={onConfirm} disabled={!canSave}>
+            Salvar endereço
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-zinc-900">Preenchimento automático</p>
+            <p className="text-sm text-zinc-600">Se quiser, detecte a localização atual e ajuste os campos em seguida.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onDetectLocation}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-wine-200 bg-white px-3.5 py-2 text-sm font-bold text-wine-700 transition hover:bg-wine-50"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a2 2 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Detectar automaticamente
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormInput label="Nome do endereço" value={draft.label} onChange={(value) => onChange({ ...draft, label: value })} placeholder="Ex: Atendimento premium" />
+          <FormInput label="País" value={draft.country} onChange={(value) => onChange({ ...draft, country: value })} placeholder="Ex: Brasil" />
+          <FormInput label="Endereço" value={draft.addressLine} onChange={(value) => onChange({ ...draft, addressLine: value })} placeholder="Rua, bairro, hotel ou referência" />
+          <FormInput label="Cidade" value={draft.city} onChange={(value) => onChange({ ...draft, city: value })} placeholder="Ex: São Paulo" />
+          <FormInput label="Estado / Região" value={draft.state} onChange={(value) => onChange({ ...draft, state: value })} placeholder="Ex: SP" />
+          <FormInput label="Observações" value={draft.notes} onChange={(value) => onChange({ ...draft, notes: value })} placeholder="Complemento ou instruções" />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function TravelScopeModal({
+  scope,
+  onClose,
+  onConfirm,
+  onChange,
+}: {
+  scope: TravelScope;
+  onClose: () => void;
+  onConfirm: () => void;
+  onChange: (scope: TravelScope) => void;
+}) {
+  return (
+    <Modal
+      open
+      title="Cobertura de deslocamento"
+      description="Escolha o alcance de deslocamento que você aceita oferecer quando estiver em atendimento."
+      onClose={onClose}
+      size="md"
+      actions={
+        <>
+          <Button variant="secondary" fullWidth onClick={onClose}>
+            Fechar
+          </Button>
+          <Button fullWidth onClick={onConfirm}>
+            Confirmar cobertura
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {TRAVEL_SCOPE_OPTIONS.map((option) => {
+          const isSelected = scope === option.value;
+
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left transition-all",
+                isSelected ? "border-wine-300 bg-wine-50 shadow-sm" : "border-zinc-200 bg-white hover:border-zinc-300",
+              )}
+            >
+              <div>
+                <p className="text-sm font-semibold text-zinc-900">{option.label}</p>
+                <p className="mt-1 text-sm text-zinc-600">{option.description}</p>
+              </div>
+              <span className={cn("mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border", isSelected ? "border-wine-700 bg-wine-700 text-white" : "border-zinc-300 bg-white text-transparent")}>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Modal>
+  );
+}
+
+function DescriptionSection({ shortDescription, description, onShortDescChange, onDescChange }: {
+  shortDescription: string;
+  description: string;
+  onShortDescChange: (value: string) => void;
+  onDescChange: (value: string) => void;
+}) {
   return (
     <div className="space-y-6">
       <div>
@@ -504,10 +1172,10 @@ function DescriptionSection({ shortDescription, description, onShortDescChange, 
   )
 }
 
-function ServicesSection({ services, onToggle }: any) {
+function ServicesSection({ services, onToggle }: { services: ServiceOption[]; onToggle: (idx: number) => void }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      {services.map((svc: any, idx: number) => (
+      {services.map((svc, idx: number) => (
         <button key={svc.label} onClick={() => onToggle(idx)} className={cn("flex items-center justify-between p-4 rounded-xl border text-left transition-all", svc.selected ? "border-wine-500 bg-wine-50/50 shadow-sm" : "border-zinc-200 bg-zinc-50/50 hover:bg-zinc-100")}>
           <span className={cn("text-sm font-bold", svc.selected ? "text-wine-900" : "text-zinc-600")}>{svc.label}</span>
           <div className={cn("w-5 h-5 rounded-md border flex items-center justify-center transition-colors", svc.selected ? "bg-wine-700 border-wine-700 text-white" : "border-zinc-300 bg-white")}>
@@ -519,7 +1187,13 @@ function ServicesSection({ services, onToggle }: any) {
   )
 }
 
-function AvailabilitySection({ showAvailability, availability, onToggleShow, onDayToggle, onTimeChange }: any) {
+function AvailabilitySection({ showAvailability, availability, onToggleShow, onDayToggle, onTimeChange }: {
+  showAvailability: boolean;
+  availability: AvailabilityDay[];
+  onToggleShow: (value: boolean) => void;
+  onDayToggle: (idx: number, enabled: boolean) => void;
+  onTimeChange: (idx: number, field: string, value: string) => void;
+}) {
   return (
     <div className="space-y-6">
       <label className="flex items-center justify-between cursor-pointer p-5 rounded-xl border border-zinc-200 bg-zinc-50/50">
@@ -529,13 +1203,13 @@ function AvailabilitySection({ showAvailability, availability, onToggleShow, onD
         </div>
         <div className="relative">
           <input type="checkbox" checked={showAvailability} onChange={(e) => onToggleShow(e.target.checked)} className="sr-only peer" />
-          <div className="w-12 h-6 bg-zinc-200 rounded-full peer peer_checked:after:translate-x-full after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-wine-700"></div>
+          <div className="w-12 h-6 bg-zinc-200 rounded-full peer peer-checked:after:translate-x-full after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-wine-700"></div>
         </div>
       </label>
 
       {showAvailability && (
         <div className="grid grid-cols-1 gap-2">
-          {availability.map((entry: any, idx: number) => (
+          {availability.map((entry, idx: number) => (
             <div key={entry.day} className={cn("flex items-center gap-4 p-3 rounded-xl border transition-all", entry.enabled ? "bg-white border-zinc-200 shadow-sm" : "bg-zinc-50 border-zinc-100 opacity-60")}>
               <div className="flex items-center gap-3 w-28 shrink-0">
                 <label className="relative inline-flex items-center cursor-pointer">

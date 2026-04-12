@@ -60,6 +60,19 @@ export type LocationVenue = {
   checked: boolean;
 };
 
+export type TravelScope = "cidade" | "estado" | "fora_estado" | "fora_pais";
+
+export type LocationAddress = {
+  id: string;
+  label: string;
+  addressLine: string;
+  city: string;
+  state: string;
+  country: string;
+  notes: string;
+  active: boolean;
+};
+
 export type ProfileCharacteristics = {
   // Grupo Básico
   gender: string;
@@ -96,8 +109,11 @@ export type ProfileFormState = {
   pricing: PricingItem[];
   // Localização
   venues: LocationVenue[];
+  locationAddresses: LocationAddress[];
   locationState: string;
   locationCity: string;
+  acceptsTravel: boolean;
+  travelScope: TravelScope;
   // Disponibilidade
   showAvailability: boolean;
   availability: AvailabilityDay[];
