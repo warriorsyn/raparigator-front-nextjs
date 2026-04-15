@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
-import type { AdPreview, AdStatus, AvailabilityDay, LocationAddress, ProfileCharacteristics, PricingItem, ServiceOption, TravelScope } from "./types";
+import type { AdPreview, AdStatus, AvailabilityDay, LocationAddress, ProfileCharacteristics, PricingItem, ServiceOption } from "./types";
 import { useProfileForm } from "./use-profile-form";
 
 // ─── Options para selects ─────────────────────────────────────────
@@ -16,29 +16,6 @@ const HAIR_COLOR_OPTIONS = ["", "Preto", "Castanho", "Loiro", "Ruivo", "Colorido
 const SMOKER_OPTIONS = ["", "Sim", "Não"];
 const VISIBILITY_STATUSES = ["Ativo", "Pausado", "Invisível"] as const;
 type VisibilityStatus = (typeof VISIBILITY_STATUSES)[number];
-
-const TRAVEL_SCOPE_OPTIONS: Array<{ value: TravelScope; label: string; description: string }> = [
-  {
-    value: "cidade",
-    label: "Aceito deslocamento apenas dentro da cidade atual de atendimento",
-    description: "Cobertura restrita à mesma cidade do endereço ativo.",
-  },
-  {
-    value: "estado",
-    label: "Aceito deslocamento apenas dentro do estado atual de atendimento",
-    description: "Cobertura ampliada para outras cidades do mesmo estado.",
-  },
-  {
-    value: "fora_estado",
-    label: "Aceito qualquer deslocamento para fora do estado",
-    description: "Cobertura nacional, sem limitar a fronteiras estaduais.",
-  },
-  {
-    value: "fora_pais",
-    label: "Aceito deslocamento para fora do país",
-    description: "Cobertura internacional, sujeita a negociação prévia.",
-  },
-];
 
 type LocationDraft = {
   label: string;
@@ -168,7 +145,6 @@ export function AnnouncementTab({
   const [highlightedLocationId, setHighlightedLocationId] = useState<string | null>(null);
   const [isLocationDecisionOpen, setIsLocationDecisionOpen] = useState(false);
   const [isLocationDraftOpen, setIsLocationDraftOpen] = useState(false);
-  const [isTravelModalOpen, setIsTravelModalOpen] = useState(false);
   const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
   const [pendingLocationDraft, setPendingLocationDraft] = useState<LocationDraft>(createDraftFromLocation());
   const [draftEditingLocationId, setDraftEditingLocationId] = useState<string | null>(null);
@@ -186,7 +162,7 @@ export function AnnouncementTab({
     return () => clearTimeout(timeoutId);
   }, [highlightedLocationId]);
 
-  const isLocationSectionExpanded = isLocationSectionOpen || isLocationDraftOpen || isTravelModalOpen || isLocationDecisionOpen;
+  const isLocationSectionExpanded = isLocationSectionOpen || isLocationDraftOpen || isLocationDecisionOpen;
 
   const activeLocation = form.locationAddresses.find((location) => location.active) ?? null;
 
@@ -324,13 +300,6 @@ export function AnnouncementTab({
 
   const handleTravelToggle = (enabled: boolean) => {
     updateField("acceptsTravel", enabled);
-
-    if (enabled) {
-      setIsTravelModalOpen(true);
-      return;
-    }
-
-    setIsTravelModalOpen(false);
   };
 
   const statusStyles = {
@@ -430,15 +399,6 @@ export function AnnouncementTab({
             }
           }}
           isEditing={Boolean(draftEditingLocationId)}
-        />
-      )}
-
-      {isTravelModalOpen && (
-        <TravelScopeModal
-          scope={form.travelScope}
-          onClose={() => setIsTravelModalOpen(false)}
-          onConfirm={() => setIsTravelModalOpen(false)}
-          onChange={(scope) => updateField("travelScope", scope)}
         />
       )}
 
@@ -559,7 +519,6 @@ export function AnnouncementTab({
               onToggleActive={activateLocation}
               onToggleTravel={handleTravelToggle}
               acceptsTravel={form.acceptsTravel}
-              travelScope={form.travelScope}
               locationStatusMessage={locationStatusMessage}
             />
           </SectionCard>
@@ -852,7 +811,6 @@ function LocationSection({
   onToggleActive,
   onToggleTravel,
   acceptsTravel,
-  travelScope,
   locationStatusMessage,
 }: {
   addresses: LocationAddress[];
@@ -864,7 +822,6 @@ function LocationSection({
   onToggleActive: (locationId: string) => void;
   onToggleTravel: (enabled: boolean) => void;
   acceptsTravel: boolean;
-  travelScope: TravelScope;
   locationStatusMessage: string | null;
 }) {
   const activeSummary = activeLocation ? formatLocationSummary(activeLocation) : "Nenhum endereço ativo no momento.";
@@ -877,20 +834,15 @@ function LocationSection({
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-zinc-200 bg-zinc-50/70 p-4 sm:p-5 space-y-4">
+      <div className="rounded-2xl border border-wine-200/70 bg-linear-to-br from-wine-50 via-white to-zinc-50 p-4 sm:p-5 shadow-sm">
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-zinc-500">Deslocamento opcional</p>
-            <p className="text-sm text-zinc-600">Marque se você aceita se deslocar para atender em outros locais.</p>
-            {acceptsTravel ? (
-              <p className="text-xs font-semibold text-wine-700">Cobertura atual: {TRAVEL_SCOPE_OPTIONS.find((option) => option.value === travelScope)?.label}</p>
-            ) : (
-              <p className="text-xs font-semibold text-zinc-500">Desativado no momento.</p>
-            )}
+            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-wine-700">Aceito me deslocar</p>
+            <p className="text-sm text-zinc-700">Ative para informar no anúncio que você também atende fora do endereço ativo.</p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label="Aceita deslocamento">
             <input type="checkbox" checked={acceptsTravel} onChange={(event) => onToggleTravel(event.target.checked)} className="sr-only peer" />
-            <div className="h-6 w-11 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-wine-700 peer-checked:after:translate-x-full" />
+            <div className="h-6 w-11 rounded-full bg-zinc-300 transition-colors after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition-all after:content-[''] peer-checked:bg-wine-700 peer-checked:after:translate-x-full peer-focus-visible:ring-2 peer-focus-visible:ring-wine-400/60" />
           </label>
         </div>
       </div>
@@ -1087,66 +1039,6 @@ function LocationDraftModal({
           <FormInput label="Estado / Região" value={draft.state} onChange={(value) => onChange({ ...draft, state: value })} placeholder="Ex: SP" />
           <FormInput label="Observações" value={draft.notes} onChange={(value) => onChange({ ...draft, notes: value })} placeholder="Complemento ou instruções" />
         </div>
-      </div>
-    </Modal>
-  );
-}
-
-function TravelScopeModal({
-  scope,
-  onClose,
-  onConfirm,
-  onChange,
-}: {
-  scope: TravelScope;
-  onClose: () => void;
-  onConfirm: () => void;
-  onChange: (scope: TravelScope) => void;
-}) {
-  return (
-    <Modal
-      open
-      title="Cobertura de deslocamento"
-      description="Escolha o alcance de deslocamento que você aceita oferecer quando estiver em atendimento."
-      onClose={onClose}
-      size="md"
-      actions={
-        <>
-          <Button variant="secondary" fullWidth onClick={onClose}>
-            Fechar
-          </Button>
-          <Button fullWidth onClick={onConfirm}>
-            Confirmar cobertura
-          </Button>
-        </>
-      }
-    >
-      <div className="space-y-3">
-        {TRAVEL_SCOPE_OPTIONS.map((option) => {
-          const isSelected = scope === option.value;
-
-          return (
-            <button
-              key={option.value}
-              type="button"
-              onClick={() => onChange(option.value)}
-              className={cn(
-                "flex w-full items-start justify-between gap-4 rounded-2xl border p-4 text-left transition-all",
-                isSelected ? "border-wine-300 bg-wine-50 shadow-sm" : "border-zinc-200 bg-white hover:border-zinc-300",
-              )}
-            >
-              <div>
-                <p className="text-sm font-semibold text-zinc-900">{option.label}</p>
-                <p className="mt-1 text-sm text-zinc-600">{option.description}</p>
-              </div>
-              <span className={cn("mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full border", isSelected ? "border-wine-700 bg-wine-700 text-white" : "border-zinc-300 bg-white text-transparent")}>
-                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3} aria-hidden="true">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
-              </span>
-            </button>
-          );
-        })}
       </div>
     </Modal>
   );
