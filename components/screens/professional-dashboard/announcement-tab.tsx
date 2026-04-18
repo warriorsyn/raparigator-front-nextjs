@@ -16,6 +16,7 @@ const HAIR_COLOR_OPTIONS = ["", "Preto", "Castanho", "Loiro", "Ruivo", "Colorido
 const SMOKER_OPTIONS = ["", "Sim", "Não"];
 const VISIBILITY_STATUSES = ["Ativo", "Pausado", "Invisível"] as const;
 type VisibilityStatus = (typeof VISIBILITY_STATUSES)[number];
+const MAX_LOCATION_ADDRESSES = 3;
 
 type LocationDraft = {
   label: string;
@@ -80,6 +81,19 @@ function formatLocationSummary(location: LocationAddress) {
   return parts.join(" • ");
 }
 
+function extractNeighborhood(address: Record<string, string | undefined>) {
+  const candidates = [
+    address.suburb,
+    address.neighbourhood,
+    address.city_district,
+    address.quarter,
+    address.residential,
+    address.hamlet,
+  ];
+
+  return candidates.find((value) => Boolean(value?.trim()))?.trim() ?? "";
+}
+
 async function reverseGeocode(latitude: number, longitude: number): Promise<DetectedLocation> {
   const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}`);
 
@@ -96,9 +110,9 @@ async function reverseGeocode(latitude: number, longitude: number): Promise<Dete
   const city = address.city ?? address.town ?? address.village ?? address.municipality ?? address.county ?? "";
   const state = address.state ?? address.region ?? address.province ?? "";
   const country = address.country ?? "";
-  const addressLine = [address.road, address.suburb, address.neighbourhood, address.city_district].filter(Boolean).join(", ");
+  const neighborhood = extractNeighborhood(address);
   const label = (city || state) ? `${city}${state ? `, ${state}` : ""}` : data.display_name ?? "Local detectado";
-  const formattedAddressLine = addressLine || data.display_name || "";
+  const formattedAddressLine = neighborhood;
 
   return {
     label,
@@ -116,7 +130,7 @@ async function reverseGeocode(latitude: number, longitude: number): Promise<Dete
 function buildLocationFromDetected(detected: DetectedLocation): LocationDraft {
   return {
     label: detected.label || `${detected.city}${detected.state ? `, ${detected.state}` : ""}`,
-    addressLine: detected.addressLine || detected.displayName || "",
+    addressLine: detected.addressLine,
     city: detected.city,
     state: detected.state,
     country: detected.country || "",
@@ -148,6 +162,7 @@ export function AnnouncementTab({
   const [detectedLocation, setDetectedLocation] = useState<DetectedLocation | null>(null);
   const [pendingLocationDraft, setPendingLocationDraft] = useState<LocationDraft>(createDraftFromLocation());
   const [draftEditingLocationId, setDraftEditingLocationId] = useState<string | null>(null);
+  const [removingLocationId, setRemovingLocationId] = useState<string | null>(null);
   const [locationStatusMessage, setLocationStatusMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -162,7 +177,20 @@ export function AnnouncementTab({
     return () => clearTimeout(timeoutId);
   }, [highlightedLocationId]);
 
+  useEffect(() => {
+    if (!locationStatusMessage) {
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      setLocationStatusMessage(null);
+    }, 3200);
+
+    return () => clearTimeout(timeoutId);
+  }, [locationStatusMessage]);
+
   const isLocationSectionExpanded = isLocationSectionOpen || isLocationDraftOpen || isLocationDecisionOpen;
+  const hasReachedLocationLimit = form.locationAddresses.length >= MAX_LOCATION_ADDRESSES;
 
   const activeLocation = form.locationAddresses.find((location) => location.active) ?? null;
 
@@ -187,6 +215,14 @@ export function AnnouncementTab({
   };
 
   const saveLocationDraft = () => {
+    const isEditing = Boolean(draftEditingLocationId);
+
+    if (!isEditing && hasReachedLocationLimit) {
+      setLocationStatusMessage(`Limite de ${MAX_LOCATION_ADDRESSES} endereços atingido.`);
+      setIsLocationDraftOpen(false);
+      return;
+    }
+
     const nextLabel = buildLocationLabel(pendingLocationDraft);
     const nextAddress: LocationAddress = {
       id: draftEditingLocationId ?? createLocationId(),
@@ -200,7 +236,6 @@ export function AnnouncementTab({
     };
 
     updateForm((current) => {
-      const isEditing = Boolean(draftEditingLocationId);
       const withoutEdited = isEditing ? current.locationAddresses.filter((location) => location.id !== draftEditingLocationId) : current.locationAddresses;
       const nextLocations = withoutEdited.map((location) => ({ ...location, active: false }));
 
@@ -219,6 +254,11 @@ export function AnnouncementTab({
   };
 
   const openLocationDraft = (draft: LocationDraft, locationId: string | null = null) => {
+    if (!locationId && hasReachedLocationLimit) {
+      setLocationStatusMessage(`Você pode cadastrar até ${MAX_LOCATION_ADDRESSES} endereços.`);
+      return;
+    }
+
     setPendingLocationDraft(draft);
     setDraftEditingLocationId(locationId);
     setIsLocationDraftOpen(true);
@@ -258,6 +298,11 @@ export function AnnouncementTab({
         return;
       }
 
+      if (hasReachedLocationLimit) {
+        setLocationStatusMessage(`Você atingiu o limite de ${MAX_LOCATION_ADDRESSES} endereços. Edite ou exclua um para adicionar outro.`);
+        return;
+      }
+
       openLocationDraft(buildLocationFromDetected(detected));
     } catch {
       setLocationStatusMessage("Permita o acesso à localização para continuar com a detecção automática.");
@@ -274,6 +319,12 @@ export function AnnouncementTab({
 
     if (!matchingRegisteredLocation) {
       setIsLocationDecisionOpen(false);
+
+      if (hasReachedLocationLimit) {
+        setLocationStatusMessage(`Você atingiu o limite de ${MAX_LOCATION_ADDRESSES} endereços. Edite ou exclua um para adicionar outro.`);
+        return;
+      }
+
       openLocationDraft(buildLocationFromDetected(detectedLocation));
       return;
     }
@@ -296,6 +347,41 @@ export function AnnouncementTab({
       },
       location.id,
     );
+  };
+
+  const handleDeleteLocation = () => {
+    if (!draftEditingLocationId) {
+      return;
+    }
+
+    const deletingLocationId = draftEditingLocationId;
+    setIsLocationDraftOpen(false);
+    setDraftEditingLocationId(null);
+    setRemovingLocationId(deletingLocationId);
+
+    setTimeout(() => {
+      updateForm((current) => {
+        const remainingLocations = current.locationAddresses.filter((location) => location.id !== deletingLocationId);
+        const hasActiveLocation = remainingLocations.some((location) => location.active);
+        const nextLocations = hasActiveLocation
+          ? remainingLocations
+          : remainingLocations.map((location, index) => ({
+            ...location,
+            active: index === 0,
+          }));
+        const nextActive = nextLocations.find((location) => location.active) ?? null;
+
+        return {
+          ...current,
+          locationAddresses: nextLocations,
+          locationState: nextActive?.state ?? "",
+          locationCity: nextActive?.city ?? "",
+        };
+      });
+
+      setRemovingLocationId(null);
+      setLocationStatusMessage("Endereço excluído com sucesso.");
+    }, 220);
   };
 
   const handleTravelToggle = (enabled: boolean) => {
@@ -388,6 +474,7 @@ export function AnnouncementTab({
           }}
           onChange={setPendingLocationDraft}
           onConfirm={saveLocationDraft}
+          onDelete={handleDeleteLocation}
           onDetectLocation={async () => {
             try {
               const detected = await captureDeviceLocation();
@@ -519,6 +606,8 @@ export function AnnouncementTab({
               onToggleActive={activateLocation}
               onToggleTravel={handleTravelToggle}
               acceptsTravel={form.acceptsTravel}
+              removingLocationId={removingLocationId}
+              canAddLocation={!hasReachedLocationLimit}
               locationStatusMessage={locationStatusMessage}
             />
           </SectionCard>
@@ -811,6 +900,8 @@ function LocationSection({
   onToggleActive,
   onToggleTravel,
   acceptsTravel,
+  removingLocationId,
+  canAddLocation,
   locationStatusMessage,
 }: {
   addresses: LocationAddress[];
@@ -822,23 +913,45 @@ function LocationSection({
   onToggleActive: (locationId: string) => void;
   onToggleTravel: (enabled: boolean) => void;
   acceptsTravel: boolean;
+  removingLocationId: string | null;
+  canAddLocation: boolean;
   locationStatusMessage: string | null;
 }) {
   const activeSummary = activeLocation ? formatLocationSummary(activeLocation) : "Nenhum endereço ativo no momento.";
 
   return (
-    <div className="space-y-5">
+    <div className="relative space-y-5">
       {locationStatusMessage ? (
-        <div className="rounded-xl border border-wine-200 bg-wine-50 px-4 py-3 text-sm text-wine-900">
-          {locationStatusMessage}
+        <div className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-wine-200 bg-white/95 px-4 py-3 text-sm text-wine-900 shadow-xl backdrop-blur-sm">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-wine-100 text-wine-700">
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              </span>
+              <p className="leading-relaxed">{locationStatusMessage}</p>
+            </div>
+          </div>
         </div>
       ) : null}
 
-      <div className="rounded-2xl border border-wine-200/70 bg-linear-to-br from-wine-50 via-white to-zinc-50 p-4 sm:p-5 shadow-sm">
+      <div
+        className={cn(
+          "rounded-2xl border p-4 sm:p-5 transition-all",
+          acceptsTravel
+            ? "border-wine-200 bg-wine-50/70 shadow-sm"
+            : "border-zinc-200 bg-white opacity-75",
+        )}
+      >
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-[11px] font-black uppercase tracking-[0.24em] text-wine-700">Aceito me deslocar</p>
-            <p className="text-sm text-zinc-700">Ative para informar no anúncio que você também atende fora do endereço ativo.</p>
+            <p className={cn("text-[11px] font-black uppercase tracking-[0.24em]", acceptsTravel ? "text-wine-700" : "text-zinc-500")}>
+              Aceito me deslocar
+            </p>
+            <p className={cn("text-sm", acceptsTravel ? "text-zinc-700" : "text-zinc-500")}>
+              Ative para informar no anúncio que você também atende fora do endereço ativo.
+            </p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer shrink-0" aria-label="Aceita deslocamento">
             <input type="checkbox" checked={acceptsTravel} onChange={(event) => onToggleTravel(event.target.checked)} className="sr-only peer" />
@@ -868,14 +981,16 @@ function LocationSection({
       <div className="space-y-3">
         {addresses.length > 0 ? addresses.map((location) => {
           const isHighlighted = highlightedLocationId === location.id;
+          const isRemoving = removingLocationId === location.id;
 
           return (
             <div
               key={location.id}
               className={cn(
-                "rounded-2xl border p-4 transition-all",
+                "rounded-2xl border p-4 transition-all duration-200",
                 location.active ? "border-wine-200 bg-wine-50/70 shadow-sm" : "border-zinc-200 bg-white hover:border-zinc-300 hover:shadow-sm",
                 isHighlighted && "ring-2 ring-zinc-300 animate-pulse",
+                isRemoving && "opacity-0 scale-[0.98] -translate-y-1",
               )}
             >
               <div className="flex items-start justify-between gap-4">
@@ -925,9 +1040,15 @@ function LocationSection({
       <button
         type="button"
         onClick={onAddLocation}
-        className="w-full rounded-2xl border-2 border-dashed border-zinc-300 bg-white px-4 py-4 text-sm font-bold text-zinc-600 transition hover:border-wine-300 hover:bg-wine-50 hover:text-wine-700"
+        disabled={!canAddLocation}
+        className={cn(
+          "w-full rounded-2xl border-2 border-dashed px-4 py-4 text-sm font-bold transition",
+          canAddLocation
+            ? "border-zinc-300 bg-white text-zinc-600 hover:border-wine-300 hover:bg-wine-50 hover:text-wine-700"
+            : "cursor-not-allowed border-zinc-200 bg-zinc-100 text-zinc-400",
+        )}
       >
-        Cadastrar novo endereço
+        {canAddLocation ? "Cadastrar novo endereço" : "Limite de 3 endereços atingido"}
       </button>
     </div>
   );
@@ -982,6 +1103,7 @@ function LocationDraftModal({
   onClose,
   onChange,
   onConfirm,
+  onDelete,
   onDetectLocation,
   isEditing,
 }: {
@@ -989,6 +1111,7 @@ function LocationDraftModal({
   onClose: () => void;
   onChange: (draft: LocationDraft) => void;
   onConfirm: () => void;
+  onDelete: () => void;
   onDetectLocation: () => Promise<void> | void;
   isEditing: boolean;
 }) {
@@ -1003,9 +1126,15 @@ function LocationDraftModal({
       size="md"
       actions={
         <>
-          <Button variant="secondary" fullWidth onClick={onClose}>
-            Cancelar
-          </Button>
+          {isEditing ? (
+            <Button variant="secondary" fullWidth onClick={onDelete}>
+              Excluir endereço
+            </Button>
+          ) : (
+            <Button variant="secondary" fullWidth onClick={onClose}>
+              Cancelar
+            </Button>
+          )}
           <Button fullWidth onClick={onConfirm} disabled={!canSave}>
             Salvar endereço
           </Button>
@@ -1034,10 +1163,8 @@ function LocationDraftModal({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormInput label="Nome do endereço" value={draft.label} onChange={(value) => onChange({ ...draft, label: value })} placeholder="Ex: Atendimento premium" />
           <FormInput label="País" value={draft.country} onChange={(value) => onChange({ ...draft, country: value })} placeholder="Ex: Brasil" />
-          <FormInput label="Endereço" value={draft.addressLine} onChange={(value) => onChange({ ...draft, addressLine: value })} placeholder="Rua, bairro, hotel ou referência" />
+          <FormInput label="Bairro" value={draft.addressLine} onChange={(value) => onChange({ ...draft, addressLine: value })} placeholder="Rua, bairro, hotel ou referência" />
           <FormInput label="Cidade" value={draft.city} onChange={(value) => onChange({ ...draft, city: value })} placeholder="Ex: São Paulo" />
-          <FormInput label="Estado / Região" value={draft.state} onChange={(value) => onChange({ ...draft, state: value })} placeholder="Ex: SP" />
-          <FormInput label="Observações" value={draft.notes} onChange={(value) => onChange({ ...draft, notes: value })} placeholder="Complemento ou instruções" />
         </div>
       </div>
     </Modal>
