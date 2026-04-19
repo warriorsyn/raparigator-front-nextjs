@@ -16,7 +16,7 @@ const HAIR_COLOR_OPTIONS = ["", "Preto", "Castanho", "Loiro", "Ruivo", "Colorido
 const SMOKER_OPTIONS = ["", "Sim", "Não"];
 const VISIBILITY_STATUSES = ["Ativo", "Pausado", "Invisível"] as const;
 type VisibilityStatus = (typeof VISIBILITY_STATUSES)[number];
-const MAX_LOCATION_ADDRESSES = 3;
+const MAX_LOCATION_ADDRESSES = 10;
 
 type LocationDraft = {
   label: string;
